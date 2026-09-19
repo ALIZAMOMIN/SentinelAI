@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sentinel — Personal AI Attack Surface Auditor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink-950: #10141B;
+    --ink-900: #171C25;
+    --ink-850: #1D2430;
+    --ink-800: #232B38;
+    --line: #2B3441;
+    --text: #E7EAEE;
+    --text-dim: #8B94A3;
+    --text-faint: #5C6472;
+    --brand: #4FA6A0;
+    --brand-dim: #35726D;
+    --risk-high: #DD6152;
+    --risk-high-dim: #4A2A26;
+    --risk-med: #DFA24E;
+    --risk-med-dim: #473521;
+    --risk-low: #55A97A;
+    --risk-low-dim: #223B2E;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--ink-950);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  a { color: inherit; }
+
+  header.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.1rem 1.75rem;
+    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    background: var(--ink-950);
+    z-index: 5;
+  }
+  .wordmark { display: flex; align-items: baseline; gap: 0.55rem; }
+  .wordmark .mark {
+    font-family: 'Fraunces', serif;
+    font-size: 1.35rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .wordmark .tag { font-size: 0.78rem; color: var(--text-faint); }
+  .scan-status {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+  .scan-status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brand); display: inline-block; margin-right: 0.4rem; }
+  button.scan-btn {
+    background: var(--ink-800);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 0.5rem 0.9rem;
+    border-radius: 7px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-family: 'IBM Plex Sans', sans-serif;
+  }
+  button.scan-btn:hover { border-color: var(--brand-dim); }
+  button.scan-btn:focus-visible, .tool-row:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+  @media (max-width: 560px) {
+    .wordmark .tag { display: none; }
+    .scan-status .dot-line { display: none; }
+    header.topbar { padding: 1rem 1.1rem; }
+  }
+
+  .layout { display: grid; grid-template-columns: 340px 1fr; min-height: calc(100vh - 64px); }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+
+  aside.watchlist { border-right: 1px solid var(--line); padding: 1.25rem 0; }
+  .watchlist h2 { font-size: 0.78rem; font-weight: 500; color: var(--text-faint); padding: 0 1.5rem 0.75rem; margin: 0; }
+  .tool-row {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    padding: 0.75rem 1.5rem 0.75rem 1.25rem; cursor: pointer;
+    border-left: 3px solid transparent; color: var(--text); font-family: inherit;
+  }
+  .tool-row:hover { background: var(--ink-900); }
+  .tool-row.active { background: var(--ink-900); }
+  .tool-row.risk-high.active, .tool-row.risk-high:hover { border-left-color: var(--risk-high); }
+  .tool-row.risk-medium.active, .tool-row.risk-medium:hover { border-left-color: var(--risk-med); }
+  .tool-row.risk-low.active, .tool-row.risk-low:hover { border-left-color: var(--risk-low); }
+  .tool-row .row-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.25rem; }
+  .tool-row .name { font-size: 0.92rem; font-weight: 500; }
+  .tool-row .score { font-size: 0.85rem; font-weight: 500; }
+  .tool-row .score.risk-high { color: var(--risk-high); }
+  .tool-row .score.risk-medium { color: var(--risk-med); }
+  .tool-row .score.risk-low { color: var(--risk-low); }
+  .tool-row .meta { font-size: 0.78rem; color: var(--text-faint); }
+
+  main.investigation { padding: 2rem 2.5rem 3rem; max-width: 780px; }
+  @media (max-width: 560px) { main.investigation { padding: 1.5rem 1.1rem 2.5rem; } }
+
+  .panel-header { display: flex; gap: 1.5rem; align-items: flex-start; margin-bottom: 2rem; }
+  .score-badge {
+    flex: 0 0 auto; width: 92px; height: 92px; border-radius: 10px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .score-badge.risk-high { background: var(--risk-high-dim); color: var(--risk-high); }
+  .score-badge.risk-medium { background: var(--risk-med-dim); color: var(--risk-med); }
+  .score-badge.risk-low { background: var(--risk-low-dim); color: var(--risk-low); }
+  .score-badge .num { font-family: 'Fraunces', serif; font-size: 2.1rem; font-weight: 600; line-height: 1; }
+  .score-badge .max { font-size: 0.7rem; opacity: 0.75; margin-top: 0.1rem; }
+
+  .panel-header .titles h1 { font-family: 'Fraunces', serif; font-size: 1.5rem; font-weight: 600; margin: 0 0 0.2rem; }
+  .panel-header .titles .vendor { font-size: 0.88rem; color: var(--text-dim); margin-bottom: 0.5rem; }
+  .badge-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .source-badge { font-size: 0.72rem; padding: 0.2rem 0.55rem; border-radius: 5px; border: 1px solid var(--line); color: var(--text-dim); }
+  .verdict { font-size: 0.88rem; margin-top: 0.4rem; }
+  .verdict.risk-high { color: var(--risk-high); }
+  .verdict.risk-medium { color: var(--risk-med); }
+  .verdict.risk-low { color: var(--risk-low); }
+
+  section.trace { margin-bottom: 2.25rem; }
+  section.trace h2, section.factors h2 { font-size: 0.78rem; color: var(--text-faint); font-weight: 500; margin: 0 0 0.9rem; }
+  .trace-step { display: flex; gap: 0.9rem; padding-bottom: 1rem; opacity: 0; transform: translateY(4px); }
+  .trace-step.revealed { opacity: 1; transform: translateY(0); transition: opacity 0.35s ease, transform 0.35s ease; }
+  .trace-step .stage-label { flex: 0 0 72px; font-size: 0.72rem; color: var(--text-faint); padding-top: 0.15rem; }
+  .trace-step .text { font-size: 0.9rem; color: var(--text); padding-bottom: 0.1rem; }
+  .trace-step .text .mono-bit { font-family: 'IBM Plex Mono', monospace; font-size: 0.85em; color: var(--brand); }
+
+  section.factors .factor { margin-bottom: 0.85rem; }
+  .factor-label { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 0.3rem; color: var(--text-dim); }
+  .factor-bar-track { height: 6px; background: var(--ink-800); border-radius: 3px; overflow: hidden; }
+  .factor-bar-fill { height: 100%; border-radius: 3px; width: 0%; transition: width 0.6s ease; }
+  .factor-bar-fill.risk-high { background: var(--risk-high); }
+  .factor-bar-fill.risk-medium { background: var(--risk-med); }
+  .factor-bar-fill.risk-low { background: var(--risk-low); }
+
+  .recommendation { background: var(--ink-900); border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem 1.25rem; }
+  .recommendation .action-tag { display: inline-block; font-size: 0.72rem; padding: 0.2rem 0.55rem; border-radius: 5px; margin-bottom: 0.6rem; font-weight: 500; }
+  .recommendation .action-tag.revoke { background: var(--risk-high-dim); color: var(--risk-high); }
+  .recommendation .action-tag.restrict { background: var(--risk-med-dim); color: var(--risk-med); }
+  .recommendation .action-tag.monitor { background: var(--risk-med-dim); color: var(--risk-med); }
+  .recommendation .action-tag.approve { background: var(--risk-low-dim); color: var(--risk-low); }
+  .recommendation p { font-size: 0.88rem; color: var(--text); margin: 0; line-height: 1.55; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .trace-step { opacity: 1; transform: none; transition: none; }
+    .factor-bar-fill { transition: none; }
+  }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="wordmark">
+      <span class="mark">Sentinel</span>
+      <span class="tag">personal AI attack surface auditor</span>
+    </div>
+    <div class="scan-status">
+      <span class="dot-line"><span class="dot"></span>Last scan 2 minutes ago</span>
+      <button class="scan-btn">Scan now</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="watchlist">
+      <h2 id="watchlist-count">Watchlist</h2>
+      <div id="tool-rows"></div>
+    </aside>
+    <main class="investigation" id="investigation-panel"></main>
+  </div>
+
+<script>
+const TOOLS = [
+  {
+    id: "quickreply",
+    name: "QuickReply AI",
+    vendor: "Bright Loop Labs",
+    sourceType: "Browser extension",
+    statedFunction: "Draft quick email replies",
+    riskScore: 8.1,
+    riskLevel: "high",
+    verdict: "Permission scope exceeds stated function, and access expanded without notice.",
+    steps: [
+      ["Perceive", "Snapshot shows full-page read/write access on every site, requested by a tool whose stated function is drafting email replies."],
+      ["Plan", "Scope looks broad for the function — checking the vendor's privacy policy and permission history next."],
+      ["Act", 'Searched <span class="mono-bit">"Bright Loop Labs privacy policy"</span> — found a policy last updated 6 months ago.'],
+      ["Reason", "Policy states inputs \u201cmay be used to improve our models.\u201d Permission history shows clipboard access was added 2 months ago, not present at install."],
+    ],
+    factors: [["Scope severity", 3.2], ["Permission drift", 2.4], ["Vendor trust signals", 1.6], ["Data sensitivity nearby", 0.9]],
+    recommendation: { action: "revoke", label: "Revoke access", text: "Revoke this extension's site access, or restrict it to specific sites only. Its permissions exceed what a reply-drafting tool needs, and the scope has grown since install without a clear re-consent step." },
+  },
+  {
+    id: "tablegenie",
+    name: "TableGenie",
+    vendor: "Openbench Labs",
+    sourceType: "MCP connector",
+    statedFunction: "Generate spreadsheets from natural-language prompts",
+    riskScore: 5.6,
+    riskLevel: "medium",
+    verdict: "Negotiated capabilities go beyond spreadsheet generation; vendor is newer and unverified.",
+    steps: [
+      ["Perceive", 'MCP handshake shows this connector negotiated <span class="mono-bit">filesystem.read</span> and <span class="mono-bit">shell.execute</span> — broader than a spreadsheet generator typically needs.'],
+      ["Plan", "Capability set doesn't obviously match the stated function — checking who operates this MCP server."],
+      ["Act", 'Searched <span class="mono-bit">"Openbench Labs MCP server"</span> — found a 3-month-old GitHub repo, no company registration found.'],
+      ["Reason", "No breach history, but that's partly because the vendor is too new to have a track record. Shell execution capability paired with an unverified publisher is the main driver of this score."],
+    ],
+    factors: [["Scope severity", 2.1], ["Permission drift", 0.0], ["Vendor trust signals", 2.6], ["Data sensitivity nearby", 0.9]],
+    recommendation: { action: "restrict", label: "Restrict permissions", text: "If possible, run this connector in a sandboxed or read-only mode. The shell-execution capability is broader than the tool's stated purpose requires, and the vendor doesn't yet have an established track record." },
+  },
+  {
+    id: "notesync",
+    name: "NoteSync",
+    vendor: "Fieldstone Software",
+    sourceType: "OAuth-connected app",
+    statedFunction: "Sync meeting notes to Google Drive",
+    riskScore: 3.4,
+    riskLevel: "medium",
+    verdict: "Scope matches its function; vendor is established with no incident history found.",
+    steps: [
+      ["Perceive", 'OAuth grant is scoped to <span class="mono-bit">drive.readonly</span> on a single named folder — narrow and specific.'],
+      ["Plan", "Scope looks proportionate — checking vendor identity and breach history for confirmation."],
+      ["Act", 'Searched <span class="mono-bit">"Fieldstone Software data breach OR incident"</span> — no results found.'],
+      ["Reason", "No drift since install. Vendor has a clear, unchanged privacy policy and no reported incidents. Residual risk is the folder's contents, not the tool itself."],
+    ],
+    factors: [["Scope severity", 0.8], ["Permission drift", 0.0], ["Vendor trust signals", 1.4], ["Data sensitivity nearby", 1.2]],
+    recommendation: { action: "monitor", label: "Monitor", text: "No action needed now. Keep this on the watchlist — it will be re-checked automatically if its permissions or vendor policy change." },
+  },
+  {
+    id: "focusflow",
+    name: "FocusFlow",
+    vendor: "Calmworks",
+    sourceType: "Browser extension",
+    statedFunction: "Block distracting sites during focus sessions",
+    riskScore: 1.2,
+    riskLevel: "low",
+    verdict: "Minimal permissions matching its stated function, from an established vendor.",
+    steps: [
+      ["Perceive", "Permission snapshot shows only active-tab title access — the minimum needed to detect a distracting site."],
+      ["Plan", "Scope already looks appropriately narrow — confirming vendor standing before closing this out."],
+      ["Act", 'Searched <span class="mono-bit">"Calmworks extension"</span> — established vendor, 4 years of consistent releases, no incidents found.'],
+      ["Reason", "Permissions match function, no drift since install, vendor has a clean track record. Nothing further to flag."],
+    ],
+    factors: [["Scope severity", 0.3], ["Permission drift", 0.0], ["Vendor trust signals", 0.5], ["Data sensitivity nearby", 0.4]],
+    recommendation: { action: "approve", label: "No action needed", text: "No action needed. This tool's access matches its purpose and its vendor has an established, clean track record." },
+  },
+];
+
+const rowsEl = document.getElementById("tool-rows");
+const panelEl = document.getElementById("investigation-panel");
+const countEl = document.getElementById("watchlist-count");
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+countEl.textContent = `Watchlist · ${TOOLS.length} tools detected`;
+
+function renderRows(activeId) {
+  rowsEl.innerHTML = TOOLS.map(t => `
+    <button class="tool-row risk-${t.riskLevel}${t.id === activeId ? " active" : ""}" data-id="${t.id}">
+      <div class="row-top">
+        <span class="name">${t.name}</span>
+        <span class="score risk-${t.riskLevel}">${t.riskScore.toFixed(1)}</span>
+      </div>
+      <div class="meta">${t.sourceType} · ${t.vendor}</div>
+    </button>
+  `).join("");
+  rowsEl.querySelectorAll(".tool-row").forEach(btn => {
+    btn.addEventListener("click", () => selectTool(btn.dataset.id));
+  });
+}
+
+function renderPanel(tool) {
+  panelEl.innerHTML = `
+    <div class="panel-header">
+      <div class="score-badge risk-${tool.riskLevel}">
+        <span class="num">${tool.riskScore.toFixed(1)}</span>
+        <span class="max">/ 10</span>
+      </div>
+      <div class="titles">
+        <h1>${tool.name}</h1>
+        <div class="vendor">${tool.vendor}</div>
+        <div class="badge-row">
+          <span class="source-badge">${tool.sourceType}</span>
+          <span class="source-badge">Stated function: ${tool.statedFunction}</span>
+        </div>
+        <div class="verdict risk-${tool.riskLevel}">${tool.verdict}</div>
+      </div>
+    </div>
+
+    <section class="trace">
+      <h2>Investigation</h2>
+      ${tool.steps.map(([stage, text]) => `
+        <div class="trace-step">
+          <div class="stage-label">${stage}</div>
+          <div class="text">${text}</div>
+        </div>
+      `).join("")}
+    </section>
+
+    <section class="factors">
+      <h2>Score breakdown</h2>
+      ${tool.factors.map(([label, val]) => `
+        <div class="factor">
+          <div class="factor-label"><span>${label}</span><span>${val.toFixed(1)}</span></div>
+          <div class="factor-bar-track">
+            <div class="factor-bar-fill risk-${tool.riskLevel}" data-width="${val * 10}%"></div>
+          </div>
+        </div>
+      `).join("")}
+    </section>
+
+    <section class="recommendation">
+      <span class="action-tag ${tool.recommendation.action}">${tool.recommendation.label}</span>
+      <p>${tool.recommendation.text}</p>
+    </section>
+  `;
+
+  const steps = panelEl.querySelectorAll(".trace-step");
+  const bars = panelEl.querySelectorAll(".factor-bar-fill");
+  steps.forEach((el, i) => {
+    const delay = reduceMotion ? 0 : i * 260;
+    setTimeout(() => el.classList.add("revealed"), delay);
+  });
+  const barDelay = reduceMotion ? 0 : steps.length * 260 + 150;
+  setTimeout(() => bars.forEach(bar => { bar.style.width = bar.getAttribute("data-width"); }), barDelay);
+}
+
+function selectTool(id) {
+  const tool = TOOLS.find(t => t.id === id);
+  renderRows(id);
+  renderPanel(tool);
+}
+
+selectTool(TOOLS[0].id);
+</script>
+</body>
+</html>
