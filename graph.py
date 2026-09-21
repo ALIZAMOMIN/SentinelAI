@@ -16,8 +16,8 @@ from langgraph.graph import StateGraph, END, START
 
 from state import InvestigationState
 from tools import whois_domain_age, web_search, extract_domain
-from sentinel_agent.llm import get_model, call_structured
-import prompts
+from llm import get_model, call_structured
+import prompts as prompts
 
 MAX_FOLLOWUP_LOOPS = 2
 
