@@ -95,3 +95,4 @@ def run_prechecks(domain: str | None) -> dict[str, Any]:
         "hibp_breach_check": hibp_domain_breach_check(domain),
         "whois_domain_age_days": whois_domain_age_days(domain),
     }
+

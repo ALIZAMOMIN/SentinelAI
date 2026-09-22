@@ -33,12 +33,46 @@ def _now_iso() -> str:
 def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
-
+'''
 def _merge_key(record: dict[str, Any]) -> str:
     vendor = record.get("vendor")
     if vendor:
         return _slug(vendor)
     return _slug(record["name"])
+'''
+
+def _merge_key(record: dict[str, Any]) -> str:
+    """
+    Identify a record without accidentally collapsing unrelated
+    extensions, MCP servers, OAuth apps, and DNS observations.
+    """
+
+    source_type = record.get("source_type") or "unknown"
+    meta = record.get("meta") or {}
+
+    # Chrome extension identity is globally stable.
+    extension_id = meta.get("extension_id")
+    if extension_id:
+        return f"extension:{extension_id}"
+
+    # Explicit MCP identity, if your MCP scanner provides one.
+    mcp_id = meta.get("mcp_server_id") or record.get("mcp_server_id")
+    if mcp_id:
+        return f"mcp:{_slug(str(mcp_id))}"
+
+    # OAuth providers should remain distinct from browser extensions.
+    oauth_id = meta.get("oauth_client_id") or record.get("oauth_client_id")
+    if oauth_id:
+        return f"oauth:{_slug(str(oauth_id))}"
+
+    # Vendor domain is useful for correlation, but don't let it
+    # automatically collapse unrelated source types.
+    vendor_domain = record.get("vendor_domain")
+    if vendor_domain:
+        return f"{source_type}:domain:{_slug(vendor_domain)}"
+
+    name = record.get("name") or "unknown-tool"
+    return f"{source_type}:name:{_slug(name)}"
 
 
 def _merge_permissions(a: dict, b: dict) -> dict:
@@ -82,7 +116,7 @@ def merge_records(raw_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     return list(merged.values())
 
-
+'''
 def _extract_domain_keywords(record: dict[str, Any]) -> list[str]:
     keywords = []
     vendor = record.get("vendor") or ""
@@ -96,6 +130,15 @@ def _extract_domain_keywords(record: dict[str, Any]) -> list[str]:
             keywords.append(slug_vendor)
     return [k for k in keywords if k]
 
+'''
+def _extract_domain_keywords(record: dict[str, Any]) -> list[str]:
+    keywords: list[str] = []
+
+    vendor_domain = record.get("vendor_domain")
+    if vendor_domain:
+        keywords.append(vendor_domain.lower().strip())
+
+    return keywords
 
 def attach_network_behavior(record: dict[str, Any], dns_observed: dict[str, str]) -> dict[str, Any]:
     keywords = _extract_domain_keywords(record)
@@ -113,12 +156,25 @@ def attach_network_behavior(record: dict[str, Any], dns_observed: dict[str, str]
     return record
 
 
+'''
 def attach_prechecks(record: dict[str, Any]) -> dict[str, Any]:
     keywords = _extract_domain_keywords(record)
     domain_to_check = keywords[0] if keywords else record.get("vendor")
     record["prechecks"] = run_prechecks(domain_to_check)
     return record
+'''
+def _domain_for_prechecks(record: dict[str, Any]) -> str | None:
+    domain = record.get("vendor_domain")
 
+    if domain:
+        return domain.lower().strip()
+
+    return None
+
+def attach_prechecks(record: dict[str, Any]) -> dict[str, Any]:
+    domain = _domain_for_prechecks(record)
+    record["prechecks"] = run_prechecks(domain)
+    return record
 
 def finalize_tool_id(record: dict[str, Any]) -> dict[str, Any]:
     """Rewrite tool_id to a stable, human-legible slug once merging is done —
@@ -141,6 +197,7 @@ def format_schema_keys(record: dict[str, Any]) -> dict[str, Any]:
         "prechecks": record.get("prechecks", {}),
         "first_seen": record.get("first_seen"),
         "last_scanned": record.get("last_scanned"),
+        "vendor_domain": record.get("vendor_domain"),
     }
 
 
