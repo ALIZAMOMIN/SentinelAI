@@ -23,19 +23,31 @@ from typing import Any
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-
-def _candidate_config_paths() -> list[Path]:
+def _candidate_config_paths() -> list[tuple[str, Path]]:
     home = Path.home()
     system = platform.system()
 
-    paths: list[Path] = []
+    paths: list[tuple[str, Path]] = []
+
     if system == "Darwin":
-        paths.append(home / "Library/Application Support/Claude/claude_desktop_config.json")
+        paths.append((
+            "claude_desktop",
+            home / "Library/Application Support/Claude/claude_desktop_config.json",
+        ))
     elif system == "Windows":
-        appdata = os.environ.get("APPDATA", str(home / "AppData/Roaming"))
-        paths.append(Path(appdata) / "Claude/claude_desktop_config.json")
-    else:  # Linux and friends
-        paths.append(home / ".config/Claude/claude_desktop_config.json")
+        appdata = os.environ.get(
+            "APPDATA",
+            str(home / "AppData/Roaming"),
+        )
+        paths.append((
+            "claude_desktop",
+            Path(appdata) / "Claude/claude_desktop_config.json",
+        ))
+    else:
+        paths.append((
+            "claude_desktop",
+            home / ".config/Claude/claude_desktop_config.json",
+        ))
 
     return paths
 
@@ -62,21 +74,18 @@ def _guess_vendor(command: str, args: list[str]) -> str | None:
                 return token
     return None
 
-
-def scan_mcp_configs(state_store: dict[str, dict] | None = None) -> list[dict[str, Any]]:
+def scan_mcp_configs(
+    state_store: dict[str, dict] | None = None,
+) -> list[dict[str, Any]]:
     """
-    Returns a list of partial Tool records, one per configured MCP server found
-    across all detected client configs.
-
-    `state_store` (optional): previously persisted {tool_id: {first_seen, ...}}
-    so we can preserve first_seen across scans — normalizer.py manages this
-    for you if you go through run_scan_cycle() instead of calling this directly.
+    Returns a list of partial Tool records, one per configured MCP server
+    found across all detected client configs.
     """
     now = _now_iso()
     state_store = state_store or {}
     records: list[dict[str, Any]] = []
 
-    for config_path in _candidate_config_paths():
+    for client_name, config_path in _candidate_config_paths():
         if not config_path.exists():
             continue
 
@@ -85,10 +94,13 @@ def scan_mcp_configs(state_store: dict[str, dict] | None = None) -> list[dict[st
             continue
 
         mcp_servers = config.get("mcpServers", {})
+
         for server_name, server_cfg in mcp_servers.items():
             command = server_cfg.get("command", "")
             args = server_cfg.get("args", []) or []
-            env_keys = sorted((server_cfg.get("env") or {}).keys())
+            env_keys = sorted(
+                (server_cfg.get("env") or {}).keys()
+            )
 
             tool_id = _server_to_tool_id(server_name)
             prev = state_store.get(tool_id)
@@ -98,29 +110,54 @@ def scan_mcp_configs(state_store: dict[str, dict] | None = None) -> list[dict[st
                 "name": server_name,
                 "vendor": _guess_vendor(command, args),
                 "source_type": "mcp_connector",
-                "stated_function": None,  # MCP configs don't self-describe; agent can enrich
+                "stated_function": None,
                 "detected_via": ["mcp_connector_scan"],
                 "permissions": {
-                    # MCP servers don't have a browser-style permission model; we
-                    # surface the launch surface (env var names, not values) as
-                    # the closest analogue so drift-detection still has a signal.
-                    "requested": [f"env:{k}" for k in env_keys],
-                    "previous_snapshot": prev.get("env_keys", []) if prev else [],
-                    "drift_detected": bool(prev) and sorted(prev.get("env_keys", [])) != env_keys,
-                    "drift_since": now if (prev and sorted(prev.get("env_keys", [])) != env_keys) else (prev.get("drift_since") if prev else None),
+                    "requested": [
+                        f"env:{k}"
+                        for k in env_keys
+                    ],
+                    "previous_snapshot": (
+                        prev.get("env_keys", [])
+                        if prev
+                        else []
+                    ),
+                    "drift_detected": (
+                        bool(prev)
+                        and sorted(prev.get("env_keys", []))
+                        != env_keys
+                    ),
+                    "drift_since": (
+                        now
+                        if (
+                            prev
+                            and sorted(prev.get("env_keys", []))
+                            != env_keys
+                        )
+                        else (
+                            prev.get("drift_since")
+                            if prev
+                            else None
+                        )
+                    ),
                 },
                 "meta": {
+                    "client": client_name,
                     "config_path": str(config_path),
                     "command": command,
                     "args": args,
                 },
-                "first_seen": prev.get("first_seen") if prev else now,
+                "first_seen": (
+                    prev.get("first_seen")
+                    if prev
+                    else now
+                ),
                 "last_scanned": now,
             }
+
             records.append(record)
 
     return records
-
 
 def build_state_snapshot(records: list[dict[str, Any]]) -> dict[str, dict]:
     """Reduce scan output to the minimal state needed to preserve first_seen/drift

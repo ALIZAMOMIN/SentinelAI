@@ -1,5 +1,5 @@
 """
-Small wrapper around Hugging Face InferenceClient that asks for JSON-mode output and
+Small wrapper around ChatOllama that asks for JSON-mode output and
 retries once with a stricter instruction if parsing fails. This is
 part of the "narrow the question" reliability fix — every call here
 returns a small, fixed-shape JSON object, never open-ended prose.
@@ -8,23 +8,13 @@ returns a small, fixed-shape JSON object, never open-ended prose.
 
 import json
 import re
-import os
+from langchain_ollama import ChatOllama
 
-from dotenv import load_dotenv
-from huggingface_hub import InferenceClient
+DEFAULT_MODEL = "qwen2.5:7b-instruct"
 
 
-load_dotenv()
-
-#DEFAULT_MODEL = "openai/gpt-oss-120b:cheapest"
-DEFAULT_MODEL = "openai/gpt-oss-120b:fastest"
-
-def get_model(model_name: str = DEFAULT_MODEL,temperature: float = 0.1):
-    return InferenceClient(
-        model=model_name,
-        
-        api_key=os.environ["HF_TOKEN_"]
-    )
+def get_model(model_name: str = DEFAULT_MODEL, temperature: float = 0.1):
+    return ChatOllama(model=model_name, temperature=temperature, format="json")
 
 
 def _extract_json(text: str) -> dict:
@@ -36,26 +26,20 @@ def _extract_json(text: str) -> dict:
 
 def call_structured(model, prompt: str, retries: int = 1) -> dict:
     last_error = None
-
     for attempt in range(retries + 1):
         try:
-            response = model.chat.completions.create(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                temperature=0.1,
-            )
-
-            content = response.choices[0].message.content
-
+            response = model.invoke(prompt)
+            content = response.content if hasattr(response, "content") else str(response)
             return _extract_json(content)
-
         except (json.JSONDecodeError, AttributeError) as e:
             last_error = e
             prompt = prompt + "\n\nReturn ONLY valid JSON, no other text, no markdown fences."
-
     # Both attempts failed — return a safe default rather than crashing the graph.
     return {"_parse_error": str(last_error)}
+
+'''
+if __name__ == '__main__':
+    model = get_model()
+    check = call_structured(model ,'hi')
+    print(check)
+'''
